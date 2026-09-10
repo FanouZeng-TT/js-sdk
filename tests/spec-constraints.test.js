@@ -150,10 +150,13 @@ test("ExpectationLineItemSchema accepts a positive integer quantity", () => {
   assert.ok(accepts(ExpectationLineItemSchema, { id: "li_1", quantity: 1 }));
 });
 
-// --- Unit price measure/reference: contextual split -------------------------
-// Both objects have {unit,value}, but the pinned schema declares measure.value
-// as `number` and reference.value as `integer`. The generated schemas must not
-// let quicktype's shared-object merge apply the integer rule to both contexts.
+// --- Shared Measure: preserve the common schema's integer contract ----------
+// `common/types/measure.json` defines `value` as an integer. The old contextual
+// split treated the catalog unit-price `measure` as a number, which weakened the
+// shared schema and let fractional settled measures through. The `minimum: 1`
+// narrowing that unit_price adds on top of the shared Measure is a separate
+// allOf branch the injector does not descend into, so it stays out of scope
+// here.
 
 const unitPrice = (measureValue, referenceValue) => ({
   amount: 125,
@@ -162,14 +165,20 @@ const unitPrice = (measureValue, referenceValue) => ({
   reference: { display_text: "kg", unit: "kg", value: referenceValue },
 });
 
-test("unit price measure accepts fractional and integer values", () => {
-  assert.ok(accepts(PurpleUnitPriceSchema, unitPrice(0.5, 100)));
-  assert.ok(accepts(PurpleUnitPriceSchema, unitPrice(1, 100)));
+test("shared Measure rejects a fractional value (type: integer)", () => {
+  assert.ok(
+    rejects(AdjustmentLineItemSchema, {
+      id: "li_1",
+      quantity: 0,
+      measure: { display_text: "kg", unit: "kg", value: 0.5 },
+    })
+  );
 });
 
-test("unit price reference requires an integer value", () => {
-  assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(0.5, 0.5)));
-  assert.ok(accepts(PurpleUnitPriceSchema, unitPrice(0.5, 100)));
+test("unit price measure and reference require positive integer values", () => {
+  assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(0.5, 100)));
+  assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(1, 0.5)));
+  assert.ok(accepts(PurpleUnitPriceSchema, unitPrice(1, 100)));
 });
 
 // --- Projected request constraints -----------------------------------------

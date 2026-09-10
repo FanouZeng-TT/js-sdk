@@ -416,22 +416,12 @@ export const PurpleMeasureSchema = z.object({
   display_text: z.string(),
   scale: z.number().int().gte(0).lte(15).optional(),
   unit: z.string(),
-  value: z.number(),
+  value: z.number().int().gte(-9007199254740991).lte(9007199254740991),
 });
 export type PurpleMeasure = z.infer<typeof PurpleMeasureSchema>;
-export const FluffyMeasureSchema = z.object({
-  display_text: z.string(),
-  scale: z.number().int().gte(0).lte(15).optional(),
-  unit: z.string(),
-  value: z.number().int().gte(1).lte(9007199254740991),
-});
+export const FluffyMeasureSchema = PurpleMeasureSchema;
 export type FluffyMeasure = PurpleMeasure;
-export const LineItemMeasureSchema = z.object({
-  display_text: z.string(),
-  scale: z.number().int().gte(0).lte(15).optional(),
-  unit: z.string(),
-  value: z.number().int().gte(1).lte(9007199254740991),
-});
+export const LineItemMeasureSchema = PurpleMeasureSchema;
 export type LineItemMeasure = PurpleMeasure;
 export const MeasureSchema = PurpleMeasureSchema;
 export type Measure = PurpleMeasure;
