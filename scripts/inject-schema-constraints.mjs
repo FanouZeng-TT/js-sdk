@@ -1545,15 +1545,28 @@ function renderStringArrayUnion(branchDescriptor, unionCall, sourceFile) {
       sawString = true;
       continue;
     }
-    if (
-      ts.isPropertyAccessExpression(callee) &&
-      ts.isIdentifier(callee.expression) &&
-      callee.expression.text === "z" &&
-      callee.name.text === "array" &&
-      element.arguments.length === 1 &&
-      ts.isCallExpression(element.arguments[0])
+    let arrayElement = element;
+    while (
+      ts.isCallExpression(arrayElement) &&
+      ts.isPropertyAccessExpression(arrayElement.expression) &&
+      (arrayElement.expression.name.text === "min" ||
+        arrayElement.expression.name.text === "max")
     ) {
-      const item = element.arguments[0];
+      arrayElement = arrayElement.expression.expression;
+    }
+    const arrayCallee = ts.isCallExpression(arrayElement)
+      ? arrayElement.expression
+      : null;
+    if (
+      arrayCallee &&
+      ts.isPropertyAccessExpression(arrayCallee) &&
+      ts.isIdentifier(arrayCallee.expression) &&
+      arrayCallee.expression.text === "z" &&
+      arrayCallee.name.text === "array" &&
+      arrayElement.arguments.length === 1 &&
+      ts.isCallExpression(arrayElement.arguments[0])
+    ) {
+      const item = arrayElement.arguments[0];
       const itemCallee = item.expression;
       if (
         !ts.isPropertyAccessExpression(itemCallee) ||
@@ -1611,7 +1624,7 @@ function findUnionCall(expression) {
     baseCall.getStart(sourceFile),
     baseCall.getEnd()
   );
-  if (/\.min\(|\.max\(|\.regex\(|\.refine\(|\.superRefine\(/.test(unionText)) {
+  if (/\.regex\(|\.refine\(|\.superRefine\(/.test(unionText)) {
     return { alreadyConstrained: true, baseCall };
   }
   return { alreadyConstrained: false, baseCall };
@@ -1687,35 +1700,50 @@ function findBaseCall(expression, sourceFile) {
  * Detect whether constraint methods are already present immediately after the
  * base call (idempotency): look at the chain wrapping the base call.
  */
+const CONSTRAINT_METHODS = new Set([
+  "int",
+  "gte",
+  "lte",
+  "gt",
+  "lt",
+  "min",
+  "max",
+  "length",
+  "regex",
+  "refine",
+  "superRefine",
+  // Derived so a new entry in STRING_FORMAT_METHODS cannot reintroduce
+  // double injection: ".url()" -> "url", ".datetime({ offset: true })"
+  // -> "datetime" (the identifier, whatever the arguments).
+  ...Object.values(STRING_FORMAT_METHODS).map(
+    (method) => method.match(/^\.([A-Za-z]+)/)[1]
+  ),
+]);
+
 function alreadyConstrained(baseCall) {
   const parent = baseCall.parent;
   // base is `z.number()`; wrapped as PropertyAccess(base).name
   if (parent && ts.isPropertyAccessExpression(parent)) {
     const method = parent.name.text;
-    const CONSTRAINT_METHODS = new Set([
-      "int",
-      "gte",
-      "lte",
-      "gt",
-      "lt",
-      "min",
-      "max",
-      "length",
-      "regex",
-      "refine",
-      "superRefine",
-      // Derived so a new entry in STRING_FORMAT_METHODS cannot reintroduce
-      // double injection: ".url()" -> "url", ".datetime({ offset: true })"
-      // -> "datetime" (the identifier, whatever the arguments).
-      ...Object.values(STRING_FORMAT_METHODS).map(
-        (method) => method.match(/^\.([A-Za-z]+)/)[1]
-      ),
-    ]);
     if (CONSTRAINT_METHODS.has(method)) {
       return true;
     }
   }
   return false;
+}
+
+function existingConstraintChainEnd(baseCall) {
+  let node = baseCall;
+  while (
+    node.parent &&
+    ts.isPropertyAccessExpression(node.parent) &&
+    CONSTRAINT_METHODS.has(node.parent.name.text) &&
+    node.parent.parent &&
+    ts.isCallExpression(node.parent.parent)
+  ) {
+    node = node.parent.parent;
+  }
+  return node.getEnd();
 }
 
 /**
@@ -1872,17 +1900,17 @@ function handleObjectLiteral(objectLiteral) {
       report.fieldsSkippedType += 1;
       continue;
     }
-    if (alreadyConstrained(base.baseCall)) {
-      report.fieldsAlreadyDone += 1;
-      matchedAny = true;
-      continue;
-    }
     // A `z.coerce.date()` base is only ever touched when the source schema
     // says the field is a string with format: date-time; the whole base call
     // is then replaced by `z.string()` and the string methods (including
     // `.datetime(...)`) are chained onto it. Any other descriptor against a
     // date base is a drift mismatch and injects nothing.
     if (base.kind === "date") {
+      if (alreadyConstrained(base.baseCall)) {
+        report.fieldsAlreadyDone += 1;
+        matchedAny = true;
+        continue;
+      }
       const methods =
         descriptor.format === "date-time"
           ? methodsFor(descriptor, "string")
@@ -1900,10 +1928,26 @@ function handleObjectLiteral(objectLiteral) {
     }
     const methods = methodsFor(descriptor, base.kind);
     if (!methods) {
-      report.fieldsSkippedType += 1;
+      if (alreadyConstrained(base.baseCall)) {
+        report.fieldsAlreadyDone += 1;
+        matchedAny = true;
+      } else {
+        report.fieldsSkippedType += 1;
+      }
       continue;
     }
-    edits.push({ pos: base.end, text: methods.join("") });
+    const chainEnd = existingConstraintChainEnd(base.baseCall);
+    const existingChain = sourceText.slice(base.end, chainEnd);
+    if (existingChain && methods.every((m) => existingChain.includes(m))) {
+      report.fieldsAlreadyDone += 1;
+      matchedAny = true;
+      continue;
+    }
+    edits.push({
+      pos: base.end,
+      remove: chainEnd - base.end,
+      text: methods.join(""),
+    });
     report.fieldsInjected += 1;
     report.injections.push(`${setKey} :: ${name} ${methods.join("")}`);
     matchedAny = true;
