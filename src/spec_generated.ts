@@ -3,6 +3,14 @@ import * as z from "zod";
 export const UseSchema = z.enum(["enc", "sig"]);
 export type Use = z.infer<typeof UseSchema>;
 
+export const TransportSchema = z.enum(["a2a", "embedded", "mcp", "rest"]);
+export type Transport = z.infer<typeof TransportSchema>;
+
+export const UcpCheckoutResponseStatusSchema = z.enum(["error", "success"]);
+export type UcpCheckoutResponseStatus = z.infer<
+  typeof UcpCheckoutResponseStatusSchema
+>;
+
 // Content format, default = plain.
 
 export const ContentTypeSchema = z.enum(["markdown", "plain"]);
@@ -41,14 +49,6 @@ export const CheckoutResponseStatusSchema = z.enum([
 ]);
 export type CheckoutResponseStatus = z.infer<
   typeof CheckoutResponseStatusSchema
->;
-
-export const TransportSchema = z.enum(["a2a", "embedded", "mcp", "rest"]);
-export type Transport = z.infer<typeof TransportSchema>;
-
-export const UcpCheckoutResponseStatusSchema = z.enum(["error", "success"]);
-export type UcpCheckoutResponseStatus = z.infer<
-  typeof UcpCheckoutResponseStatusSchema
 >;
 
 // Adjustment status.
@@ -233,6 +233,33 @@ export type NetworkTokenCredentialType = z.infer<
 export const PanCredentialTypeSchema = z.enum(["pan"]);
 export type PanCredentialType = z.infer<typeof PanCredentialTypeSchema>;
 
+export const CapabilityDiscoverySchema = z.object({
+  config: z.record(z.string(), z.any()).optional(),
+  extends: z
+    .union([
+      z
+        .array(
+          z
+            .string()
+            .regex(
+              /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/
+            )
+        )
+        .min(1),
+      z
+        .string()
+        .regex(
+          /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/
+        ),
+    ])
+    .optional(),
+  name: z.string(),
+  schema: z.string().url(),
+  spec: z.string().url(),
+  version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type CapabilityDiscovery = z.infer<typeof CapabilityDiscoverySchema>;
+
 export const SigningKeySchema = z.object({
   alg: z.string().optional(),
   crv: z.string().optional(),
@@ -263,7 +290,7 @@ export type ConstraintsProperty = z.infer<typeof ConstraintsPropertySchema>;
 export const ConstraintExpressionPropertySchema = ConstraintsPropertySchema;
 export type ConstraintExpressionProperty = ConstraintsProperty;
 
-export const CapabilityDiscoverySchema = z.object({
+export const CapabilityResponseSchema = z.object({
   config: z.record(z.string(), z.any()).optional(),
   extends: z
     .union([
@@ -283,12 +310,23 @@ export const CapabilityDiscoverySchema = z.object({
         ),
     ])
     .optional(),
-  name: z.string(),
-  schema: z.string().url(),
-  spec: z.string().url(),
+  id: z.string().optional(),
+  schema: z.string().url().optional(),
+  spec: z.string().url().optional(),
   version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
-export type CapabilityDiscovery = z.infer<typeof CapabilityDiscoverySchema>;
+export type CapabilityResponse = z.infer<typeof CapabilityResponseSchema>;
+
+export const ServiceResponseSchema = z.object({
+  config: z.record(z.string(), z.any()).optional(),
+  endpoint: z.string().url().optional(),
+  id: z.string().optional(),
+  schema: z.string().url().optional(),
+  spec: z.string().url().optional(),
+  transport: TransportSchema,
+  version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type ServiceResponse = z.infer<typeof ServiceResponseSchema>;
 
 export const A2ASchema = z.object({
   endpoint: z
@@ -416,7 +454,7 @@ export const PurpleMeasureSchema = z.object({
   display_text: z.string(),
   scale: z.number().int().gte(0).lte(15).optional(),
   unit: z.string(),
-  value: z.number(),
+  value: z.number().int().gte(-9007199254740991).lte(9007199254740991),
 });
 export type PurpleMeasure = z.infer<typeof PurpleMeasureSchema>;
 export const FluffyMeasureSchema = z.object({
@@ -426,12 +464,7 @@ export const FluffyMeasureSchema = z.object({
   value: z.number().int().gte(1).lte(9007199254740991),
 });
 export type FluffyMeasure = PurpleMeasure;
-export const LineItemMeasureSchema = z.object({
-  display_text: z.string(),
-  scale: z.number().int().gte(0).lte(15).optional(),
-  unit: z.string(),
-  value: z.number().int().gte(1).lte(9007199254740991),
-});
+export const LineItemMeasureSchema = PurpleMeasureSchema;
 export type LineItemMeasure = PurpleMeasure;
 export const MeasureSchema = PurpleMeasureSchema;
 export type Measure = PurpleMeasure;
@@ -711,44 +744,6 @@ export const TotalLineSchema = z.object({
 export type TotalLine = z.infer<typeof TotalLineSchema>;
 export const TotalLineClassSchema = TotalLineSchema;
 export type TotalLineClass = TotalLine;
-
-export const CapabilityResponseSchema = z.object({
-  config: z.record(z.string(), z.any()).optional(),
-  extends: z
-    .union([
-      z
-        .array(
-          z
-            .string()
-            .regex(
-              /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/
-            )
-        )
-        .min(1),
-      z
-        .string()
-        .regex(
-          /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/
-        ),
-    ])
-    .optional(),
-  id: z.string().optional(),
-  schema: z.string().url().optional(),
-  spec: z.string().url().optional(),
-  version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
-export type CapabilityResponse = z.infer<typeof CapabilityResponseSchema>;
-
-export const ServiceResponseSchema = z.object({
-  config: z.record(z.string(), z.any()).optional(),
-  endpoint: z.string().url().optional(),
-  id: z.string().optional(),
-  schema: z.string().url().optional(),
-  spec: z.string().url().optional(),
-  transport: TransportSchema,
-  version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
-export type ServiceResponse = z.infer<typeof ServiceResponseSchema>;
 
 export const EventLineItemSchema = z.object({
   id: z.string(),
@@ -1280,15 +1275,98 @@ export const McpToolCallSchema = z.object({
 });
 export type McpToolCall = z.infer<typeof McpToolCallSchema>;
 
-export const EcKeysCarryCrvXYSchema = z.object({
-  alg: z.string().optional(),
-  crv: z.string().optional(),
-  kid: z.string(),
-  kty: z.string(),
-  use: z.string().optional(),
-  x: z.string().optional(),
-  y: z.string().optional(),
-});
+export const EcKeysCarryCrvXYSchema = z
+  .object({
+    alg: z.string().optional(),
+    crv: z.string().optional(),
+    kid: z.string(),
+    kty: z.string(),
+    use: z.string().optional(),
+    x: z.string().optional(),
+    y: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    for (const rule of [
+      {
+        kind: "required",
+        discriminator: "kty",
+        values: ["EC"],
+        negated: false,
+        required: ["crv", "x", "y"],
+        field: null,
+        format: null,
+        target: null,
+        minimum: null,
+        maximum: null,
+        exclusiveMinimum: null,
+        exclusiveMaximum: null,
+      },
+      {
+        kind: "required",
+        discriminator: "kty",
+        values: ["OKP"],
+        negated: false,
+        required: ["crv", "x"],
+        field: null,
+        format: null,
+        target: null,
+        minimum: null,
+        maximum: null,
+        exclusiveMinimum: null,
+        exclusiveMaximum: null,
+      },
+    ]) {
+      const record = value as Record<string, unknown>;
+      const discriminatorVal = record[rule.discriminator];
+      if (discriminatorVal === undefined) continue;
+      const matches = (rule.values as readonly unknown[]).includes(
+        discriminatorVal
+      );
+      if (rule.negated ? matches : !matches) continue;
+      if (rule.kind === "required") {
+        for (const field of rule.required) {
+          if (!(field in record))
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [field],
+              message: "Field is required by a conditional constraint",
+            });
+        }
+        continue;
+      }
+      if (rule.kind === "format") {
+        const field = rule.field;
+        const fieldValue = field === null ? undefined : record[field];
+        if (rule.format === "uri" && typeof fieldValue === "string") {
+          try {
+            new URL(fieldValue);
+          } catch {
+            if (field !== null)
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [field],
+                message: "Value must be a valid URI",
+              });
+          }
+        }
+        continue;
+      }
+      if (rule.target === null) continue;
+      const target = record[rule.target];
+      if (typeof target !== "number") continue;
+      const invalid =
+        (rule.minimum !== null && target < rule.minimum) ||
+        (rule.maximum !== null && target > rule.maximum) ||
+        (rule.exclusiveMinimum !== null && target <= rule.exclusiveMinimum) ||
+        (rule.exclusiveMaximum !== null && target >= rule.exclusiveMaximum);
+      if (invalid)
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [rule.target],
+          message: "Value violates a conditional numeric constraint",
+        });
+    }
+  });
 export type EcKeysCarryCrvXY = z.infer<typeof EcKeysCarryCrvXYSchema>;
 
 export const AdjustmentLineItemClassSchema = z.object({
@@ -1485,11 +1563,11 @@ export const ListPriceRangeClassSchema = PriceRangeSchema;
 export type ListPriceRangeClass = PriceRange;
 
 export const RequestConstraintsPropertySchema = z.object({
-  anyOf: z.array(z.record(z.string(), z.any())).optional(),
+  anyOf: z.array(z.record(z.string(), z.any())).min(1).optional(),
   properties: z.record(z.string(), ConstraintsPropertySchema).optional(),
-  required: z.array(z.string()).optional(),
+  required: z.array(z.string()).min(1).optional(),
   const: z.any().optional(),
-  enum: z.array(z.any()).optional(),
+  enum: z.array(z.any()).min(1).optional(),
 });
 export type RequestConstraintsProperty = z.infer<
   typeof RequestConstraintsPropertySchema
@@ -1596,7 +1674,7 @@ export type LineItemUpdateRequest = z.infer<typeof LineItemUpdateRequestSchema>;
 export const UnitPriceClassSchema = z.object({
   amount: z.number().int().gte(0).lte(9007199254740991),
   currency: z.string().regex(/^[A-Z]{3}$/),
-  measure: PurpleMeasureSchema,
+  measure: FluffyMeasureSchema,
   reference: FluffyMeasureSchema,
 });
 export type UnitPriceClass = z.infer<typeof UnitPriceClassSchema>;
@@ -1996,7 +2074,7 @@ export type OrderPaymentWithAcceptedTerm = z.infer<
 export const CheckoutWithPaymentTermsPaymentSchema = z.object({
   instruments: z.array(SelectedPaymentInstrumentSchema).optional(),
   selected_term_id: z.string().optional(),
-  terms: z.array(PurplePaymentTermSchema).optional(),
+  terms: z.array(PurplePaymentTermSchema).min(1).optional(),
 });
 export type CheckoutWithPaymentTermsPayment = z.infer<
   typeof CheckoutWithPaymentTermsPaymentSchema
@@ -2081,7 +2159,7 @@ export type MethodElement = FulfillmentMethodCreateRequest;
 
 export const BusinessSplitPaymentsConfigSchema = z.object({
   allowed_combinations: z
-    .array(z.array(AllowedCombinationElementSchema))
+    .array(z.array(AllowedCombinationElementSchema).min(1))
     .min(1),
 });
 export type BusinessSplitPaymentsConfig = z.infer<
@@ -2135,13 +2213,6 @@ export const AvailablePaymentInstrumentSchema = z.object({
 export type AvailablePaymentInstrument = z.infer<
   typeof AvailablePaymentInstrumentSchema
 >;
-
-export const UcpSchema = z.object({
-  capabilities: z.array(CapabilityDiscoverySchema),
-  services: z.record(z.string(), UcpServiceSchema),
-  version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
-export type Ucp = z.infer<typeof UcpSchema>;
 
 export const LineItemCreateRequestSchema = z.object({
   item: ItemCreateRequestSchema,
@@ -2388,6 +2459,55 @@ export type PaymentHandlerResponse = z.infer<
   typeof PaymentHandlerResponseSchema
 >;
 
+export const UcpSchema = z.object({
+  capabilities: z
+    .record(z.string(), z.array(CapabilityResponseSchema))
+    .refine(
+      (value) =>
+        Object.keys(value).every((key) =>
+          /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/.test(
+            key
+          )
+        ),
+      { message: "Record keys must match the required pattern (propertyNames)" }
+    )
+    .optional(),
+  map_order: z.record(z.string(), z.array(z.string())).optional(),
+  payment_handlers: z
+    .record(z.string(), z.array(PaymentHandlerResponseSchema))
+    .refine(
+      (value) =>
+        Object.keys(value).every((key) =>
+          /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/.test(
+            key
+          )
+        ),
+      { message: "Record keys must match the required pattern (propertyNames)" }
+    ),
+  services: z
+    .record(z.string(), z.array(ServiceResponseSchema))
+    .refine(
+      (value) =>
+        Object.keys(value).every((key) =>
+          /^[a-z](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9_-]*[a-z0-9_])?)+$/.test(
+            key
+          )
+        ),
+      { message: "Record keys must match the required pattern (propertyNames)" }
+    ),
+  status: UcpCheckoutResponseStatusSchema.optional(),
+  supported_versions: z
+    .record(z.string(), z.string())
+    .refine(
+      (value) =>
+        Object.keys(value).every((key) => /^\d{4}-\d{2}-\d{2}$/.test(key)),
+      { message: "Record keys must match the required pattern (propertyNames)" }
+    )
+    .optional(),
+  version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+export type Ucp = z.infer<typeof UcpSchema>;
+
 export const CheckoutCreateRequestSchema = z.object({
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
@@ -2420,7 +2540,7 @@ export const UcpCheckoutResponseSchema = z.object({
       { message: "Record keys must match the required pattern (propertyNames)" }
     )
     .optional(),
-  map_order: z.string().optional(),
+  map_order: z.record(z.string(), z.array(z.string())).optional(),
   payment_handlers: z
     .record(z.string(), z.array(PaymentHandlerResponseSchema))
     .refine(
@@ -2462,7 +2582,7 @@ export const UcpResponseSchema = z.object({
       { message: "Record keys must match the required pattern (propertyNames)" }
     )
     .optional(),
-  map_order: z.string().optional(),
+  map_order: z.record(z.string(), z.array(z.string())).optional(),
   payment_handlers: z
     .record(z.string(), z.array(PaymentHandlerResponseSchema))
     .refine(
@@ -2517,7 +2637,7 @@ export type CheckoutWithBuyerConsentUpdateRequest = z.infer<
 >;
 
 export const CheckoutWithBuyerConsentResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerWithConsentResponseSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2564,7 +2684,7 @@ export type CheckoutWithBuyerConsentResponse = z.infer<
 >;
 
 export const CheckoutWithDiscountResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2631,7 +2751,7 @@ export type CheckoutWithFulfillmentUpdateRequest = z.infer<
 >;
 
 export const CheckoutWithFulfillmentResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2679,7 +2799,7 @@ export type CheckoutWithFulfillmentResponse = z.infer<
 >;
 
 export const CartResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2721,7 +2841,7 @@ export const CartResponseSchema = z.object({
 export type CartResponse = z.infer<typeof CartResponseSchema>;
 
 export const CheckoutWithCartResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2769,7 +2889,7 @@ export type CheckoutWithCartResponse = z.infer<
 >;
 
 export const LookupResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   messages: z.array(MessageSchema).optional(),
   policies: z.array(PolicySchema).optional(),
   products: z.array(ProductElementSchema),
@@ -2778,7 +2898,7 @@ export const LookupResponseSchema = z.object({
 export type LookupResponse = z.infer<typeof LookupResponseSchema>;
 
 export const GetProductResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   messages: z.array(MessageSchema).optional(),
   policies: z.array(PolicySchema).optional(),
   product: ProductClassSchema,
@@ -2787,7 +2907,7 @@ export const GetProductResponseSchema = z.object({
 export type GetProductResponse = z.infer<typeof GetProductResponseSchema>;
 
 export const SearchResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   messages: z.array(MessageSchema).optional(),
   pagination: SearchResponsePaginationSchema.optional(),
   policies: z.array(PolicySchema).optional(),
@@ -2797,7 +2917,7 @@ export const SearchResponseSchema = z.object({
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
 export const CheckoutWithAp2MandateSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2864,7 +2984,7 @@ export type LocationSearchResponse = z.infer<
 >;
 
 export const CheckoutWithLoyaltySchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2910,7 +3030,7 @@ export const CheckoutWithLoyaltySchema = z.object({
 export type CheckoutWithLoyalty = z.infer<typeof CheckoutWithLoyaltySchema>;
 
 export const CheckoutWithPaymentTermsSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -2957,7 +3077,7 @@ export type CheckoutWithPaymentTerms = z.infer<
 >;
 
 export const CheckoutWithSplitPaymentsSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
@@ -3004,7 +3124,7 @@ export type CheckoutWithSplitPayments = z.infer<
 >;
 
 export const A2AUcpMessageEnvelopeSchema = z.object({
-  extensions: z.array(ExtensionElementSchema).optional(),
+  extensions: z.array(ExtensionElementSchema).min(1).optional(),
   id: z.union([z.number(), z.null(), z.string()]).optional(),
   jsonrpc: JsonrpcSchema.optional(),
   method: A2AUcpMessageEnvelopeMethodSchema.optional(),
@@ -3042,7 +3162,7 @@ export type UcpDiscoveryProfilePayment = z.infer<
 >;
 
 export const CheckoutResponseSchema = z.object({
-  actions: z.record(z.string(), z.array(ActionElementSchema)).optional(),
+  actions: z.record(z.string(), z.array(ActionElementSchema).min(1)).optional(),
   attribution: z.record(z.string(), z.string()).optional(),
   buyer: BuyerClassSchema.optional(),
   context: ContextClassSchema.optional(),
