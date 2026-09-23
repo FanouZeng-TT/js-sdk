@@ -212,7 +212,17 @@ function resolveObject(node, file, seen = new Set(), depth = 0) {
     for (const sub of node.allOf) {
       const resolved = resolveObject(sub, file, new Set(seen), depth + 1);
       if (resolved) {
-        properties = { ...resolved.properties, ...properties };
+        for (const [propName, propNode] of Object.entries(
+          resolved.properties
+        )) {
+          if (propName in properties) {
+            properties[propName] = {
+              allOf: [propNode, properties[propName]],
+            };
+          } else {
+            properties[propName] = propNode;
+          }
+        }
         propertyFiles = { ...resolved.propertyFiles, ...propertyFiles };
       }
     }
@@ -447,13 +457,6 @@ function describeStringArrayUnionConstraint(
 // setKey -> Map(propertyName -> Map(signature -> descriptor))
 const constraintIndex = new Map();
 
-// Scalar number kinds are also indexed even when they carry no value constraint.
-// The generic constraint index deliberately omits an unconstrained `number`, but
-// contextual splits must be able to distinguish it from `integer` when quicktype
-// merges two same-shape objects.
-// setKey -> Map(propertyName -> Set("number" | "integer"))
-const scalarTypeIndex = new Map();
-
 // Constrained scalar unions (`string | array<string>`) keyed like field
 // constraints, but rendered by replacing the generated `z.union(...)` call
 // rather than appending one method to a single base constructor.
@@ -506,27 +509,13 @@ function recordObject(properties, file, propertyFiles) {
   if (!constraintIndex.has(setKey)) {
     constraintIndex.set(setKey, new Map());
   }
-  if (!scalarTypeIndex.has(setKey)) {
-    scalarTypeIndex.set(setKey, new Map());
-  }
   const byProperty = constraintIndex.get(setKey);
-  const scalarTypesByProperty = scalarTypeIndex.get(setKey);
   for (const [name, propertyNode] of Object.entries(properties)) {
     // Each property carries the file it was authored in (it may have been
     // inherited into this object via a cross-file `$ref`/`allOf`, in which
     // case its own relative `$ref`s must resolve against that file, not the
     // inheriting object's). Fall back to the object's file when unset.
     const propertyFile = (propertyFiles && propertyFiles[name]) || file;
-    const effective = effectiveConstraints(propertyNode, propertyFile);
-    const scalarType = Array.isArray(effective.type)
-      ? effective.type.find((entry) => entry !== "null")
-      : effective.type;
-    if (scalarType === "number" || scalarType === "integer") {
-      if (!scalarTypesByProperty.has(name)) {
-        scalarTypesByProperty.set(name, new Set());
-      }
-      scalarTypesByProperty.get(name).add(scalarType);
-    }
     const described = describeConstraint(propertyNode, propertyFile);
     if (described) {
       if (!byProperty.has(name)) {
@@ -1210,7 +1199,11 @@ for (const [setKey, bySignature] of variantUnionIndex) {
   const requiredRules = [...bySignature.values()][0];
   const fields = variantUnionFieldIndex.get(setKey);
   if (fields?.size > 1) {
-    ambiguous.push({ setKey, name: "<variant-union-field>", count: fields.size });
+    ambiguous.push({
+      setKey,
+      name: "<variant-union-field>",
+      count: fields.size,
+    });
     continue;
   }
   const fieldRules = fields ? [...fields.values()][0] : [];
@@ -1243,6 +1236,43 @@ const sharedQuantitySplitNeeded = (() => {
     signatures.includes(JSON.stringify({ int: true })) &&
     signatures.some((signature) => JSON.parse(signature).minimum === 1)
   );
+})();
+
+// --- Shared {display_text,scale,unit,value} Measure: contextual split --------
+//
+// `common/types/measure.json` (and `adjustment.json`'s `line_items[].measure`)
+// declares `value` as a signed safe integer (`minimum: -9007199254740991`),
+// while `shopping/types/unit_price.json` narrows both `measure.value` and
+// `reference.value` with `minimum: 1` via `allOf`. quicktype merges them into
+// `PurpleMeasureSchema` (`MeasureSchema` / `LineItemMeasureSchema`) and points
+// `UnitPriceClassSchema.measure` at `PurpleMeasureSchema` and
+// `UnitPriceClassSchema.reference` at `FluffyMeasureSchema`.
+//
+// Keep `PurpleMeasureSchema` (and `MeasureSchema` / `LineItemMeasureSchema`) on
+// the signed integer descriptor, split `FluffyMeasureSchema` into a standalone
+// positive-integer (`gte(1)`) object, and rebind `UnitPriceClassSchema.measure`
+// to `FluffyMeasureSchema`.
+const MEASURE_SET_KEY = "display_text,scale,unit,value";
+const sharedMeasureSplitNeeded = (() => {
+  const byProperty = constraintIndex.get(MEASURE_SET_KEY);
+  if (!byProperty) return false;
+  const value = byProperty.get("value");
+  if (!value || value.size !== 2) return false;
+  const descriptors = [...value.values()];
+  const signed = descriptors.find((d) => d.int === true && d.minimum < 0);
+  const positive = descriptors.find((d) => d.int === true && d.minimum === 1);
+  if (!signed || !positive) return false;
+  if (!resolvedIndex.has(MEASURE_SET_KEY)) {
+    resolvedIndex.set(MEASURE_SET_KEY, new Map());
+  }
+  resolvedIndex.get(MEASURE_SET_KEY).set("value", signed);
+  const ambigIdx = ambiguous.findIndex(
+    (a) => a.setKey === MEASURE_SET_KEY && a.name === "value"
+  );
+  if (ambigIdx >= 0) {
+    ambiguous.splice(ambigIdx, 1);
+  }
+  return true;
 })();
 
 // --- Zod method rendering --------------------------------------------------
@@ -1936,6 +1966,11 @@ function handleObjectLiteral(objectLiteral) {
       }
       continue;
     }
+    if (base.kind !== "array" && alreadyConstrained(base.baseCall)) {
+      report.fieldsAlreadyDone += 1;
+      matchedAny = true;
+      continue;
+    }
     const chainEnd = existingConstraintChainEnd(base.baseCall);
     const existingChain = sourceText.slice(base.end, chainEnd);
     if (existingChain && methods.every((m) => existingChain.includes(m))) {
@@ -2087,6 +2122,45 @@ if (sharedQuantitySplitNeeded) {
   }
 }
 
+if (sharedMeasureSplitNeeded) {
+  const aliasRef = /export const FluffyMeasureSchema = PurpleMeasureSchema;/;
+  const matched = aliasRef.exec(sourceText);
+  if (matched) {
+    const standalone =
+      `export const FluffyMeasureSchema = z.object({\n` +
+      `  display_text: z.string(),\n` +
+      `  scale: z.number().int().gte(0).lte(15).optional(),\n` +
+      `  unit: z.string(),\n` +
+      `  value: z.number().int().gte(1).lte(9007199254740991),\n` +
+      `});`;
+    edits.push({
+      pos: matched.index,
+      remove: matched[0].length,
+      text: standalone,
+    });
+    report.sharedMeasureInjected = (report.sharedMeasureInjected ?? 0) + 1;
+  }
+  const unitPriceStart = sourceText.indexOf(
+    "export const UnitPriceClassSchema = z.object({"
+  );
+  const unitPriceEnd =
+    unitPriceStart >= 0 ? sourceText.indexOf("\n});", unitPriceStart) : -1;
+  if (unitPriceStart >= 0 && unitPriceEnd >= 0) {
+    const unitPriceText = sourceText.slice(unitPriceStart, unitPriceEnd);
+    const measureProp = /["']?measure["']?: PurpleMeasureSchema\b/.exec(
+      unitPriceText
+    );
+    if (measureProp) {
+      edits.push({
+        pos: unitPriceStart + measureProp.index,
+        remove: measureProp[0].length,
+        text: "measure: FluffyMeasureSchema",
+      });
+      report.sharedMeasureInjected = (report.sharedMeasureInjected ?? 0) + 1;
+    }
+  }
+}
+
 // Apply edits back-to-front so positions stay valid.
 edits.sort((a, b) => b.pos - a.pos);
 let output = sourceText;
@@ -2110,6 +2184,7 @@ process.stdout.write(
     `${report.maxPropertiesInjected} object maxProperties check(s); ` +
     `${report.conditionalsInjected} conditional check(s); ` +
     `${report.sharedQuantityInjected} shared-quantity split edit(s); ` +
+    `${report.sharedMeasureInjected ?? 0} shared-measure split edit(s); ` +
     `${report.fieldsAlreadyDone} already constrained; ` +
     `${report.fieldsSkippedType} skipped (base-type mismatch).\n`
 );

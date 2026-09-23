@@ -150,13 +150,10 @@ test("ExpectationLineItemSchema accepts a positive integer quantity", () => {
   assert.ok(accepts(ExpectationLineItemSchema, { id: "li_1", quantity: 1 }));
 });
 
-// --- Shared Measure: preserve the common schema's integer contract ----------
-// `common/types/measure.json` defines `value` as an integer. The old contextual
-// split treated the catalog unit-price `measure` as a number, which weakened the
-// shared schema and let fractional settled measures through. The `minimum: 1`
-// narrowing that unit_price adds on top of the shared Measure is a separate
-// allOf branch the injector does not descend into, so it stays out of scope
-// here.
+// --- Shared Measure: preserve signed integer vs. unit-price positive split --
+// `common/types/measure.json` (and `adjustment.json`'s `line_items[].measure`)
+// defines `value` as a signed safe integer, whereas `shopping/types/unit_price.json`
+// narrows both `measure.value` and `reference.value` with `minimum: 1` via `allOf`.
 
 const unitPrice = (measureValue, referenceValue) => ({
   amount: 125,
@@ -165,7 +162,7 @@ const unitPrice = (measureValue, referenceValue) => ({
   reference: { display_text: "kg", unit: "kg", value: referenceValue },
 });
 
-test("shared Measure rejects a fractional value (type: integer)", () => {
+test("shared Measure requires an integer value and accepts zero or signed values", () => {
   assert.ok(
     rejects(AdjustmentLineItemSchema, {
       id: "li_1",
@@ -173,11 +170,28 @@ test("shared Measure rejects a fractional value (type: integer)", () => {
       measure: { display_text: "kg", unit: "kg", value: 0.5 },
     })
   );
+  assert.ok(
+    accepts(AdjustmentLineItemSchema, {
+      id: "li_1",
+      quantity: 0,
+      measure: { display_text: "kg", unit: "kg", value: 0 },
+    })
+  );
+  assert.ok(
+    accepts(AdjustmentLineItemSchema, {
+      id: "li_1",
+      quantity: 0,
+      measure: { display_text: "kg", unit: "kg", value: -5 },
+    })
+  );
 });
 
 test("unit price measure and reference require positive integer values", () => {
   assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(0.5, 100)));
   assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(1, 0.5)));
+  assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(0, 100)));
+  assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(1, 0)));
+  assert.ok(rejects(PurpleUnitPriceSchema, unitPrice(-1, 100)));
   assert.ok(accepts(PurpleUnitPriceSchema, unitPrice(1, 100)));
 });
 
